@@ -1,0 +1,66 @@
+<?php
+
+return [
+    'frontend_url' => env('PLUTOD_FRONTEND_URL', 'http://localhost:8100'),
+    'callback_url' => env('PLUTOD_CALLBACK_URL', env('APP_URL', 'http://localhost:8000')),
+    'firebase_project_id' => env('FIREBASE_PROJECT_ID', 'designpro-5169c'),
+    'firebase_api_key' => env('FIREBASE_API_KEY'),
+    'known_admin_emails' => array_values(array_filter(array_map('trim', explode(',', (string) env('PLUTOD_ADMIN_EMAILS', 'ismailabdulrauf639@gmail.com,mohammedabdulsalam06@gmail.com'))))),
+    'otp' => [
+        'expiry_minutes' => (int) env('OTP_EXPIRY_MINUTES', 5),
+        'max_attempts' => (int) env('OTP_MAX_ATTEMPTS', 5),
+        'max_per_email_per_window' => (int) env('OTP_MAX_PER_EMAIL_WINDOW', 5),
+        'window_minutes' => (int) env('OTP_WINDOW_MINUTES', 10),
+    ],
+    'plans' => [
+        'basic' => [
+            'id' => 'basic',
+            'name' => 'Basic',
+            'price' => 0,
+            'duration' => 'forever',
+            'features' => [
+                'Pay-as-you-go model',
+                '30 designs per day',
+                'Stickers, Letterheads, Tags & Posters',
+            ],
+            'token_bonus' => 0,
+            'duration_months' => 0,
+            'color' => '#6B7280',
+            'icon' => 'star-outline',
+        ],
+        'premium' => [
+            'id' => 'premium',
+            'name' => 'Premium',
+            'price' => 2500,
+            'duration' => '2 months',
+            'features' => [
+                '1,000 bonus tokens',
+                'Unlimited designs',
+                'Full imposition',
+                'Advanced AI features',
+                'Priority support',
+                'All design categories',
+            ],
+            'token_bonus' => 1000,
+            'duration_months' => 2,
+            'plan_id' => 'PLN_5x6n9kfpr8z34lu',
+            'color' => '#F59E0B',
+            'icon' => 'star',
+            'popular' => true,
+            'recommended' => true,
+        ],
+    ],
+    'referrals' => [
+        'referrer_bonus' => (int) env('REFERRAL_REFERRER_BONUS', 500),
+        'referee_bonus' => (int) env('REFERRAL_REFEREE_BONUS', 750),
+        'tiers' => [
+            ['name' => 'starter', 'threshold' => 0],
+            ['name' => 'bronze', 'threshold' => 5],
+            ['name' => 'silver', 'threshold' => 10],
+            ['name' => 'gold', 'threshold' => 25],
+            ['name' => 'platinum', 'threshold' => 50],
+            ['name' => 'diamond', 'threshold' => 100],
+        ],
+    ],
+    'starter_tokens' => (int) env('PLUTOD_STARTER_TOKENS', 100),
+];
