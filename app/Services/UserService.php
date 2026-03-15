@@ -42,6 +42,7 @@ class UserService
         }
 
         $settings = $this->appSettingService->get();
+        $starterTokens = (int) config('plutod.starter_tokens', 16);
 
         $user = User::query()->create([
             'firebase_uid' => $apiId,
@@ -50,14 +51,14 @@ class UserService
             'role' => 'user',
             'status' => 'active',
             'plan' => $settings->default_user_plan,
-            'tokens' => (int) $settings->max_free_tokens,
+            'tokens' => $starterTokens,
             'referral_code' => $this->generateReferralCode(),
             'last_active_at' => now(),
         ]);
 
         $this->logActivity($user, 'user_registered', 'New user registered', [
             'source' => 'laravel-backend',
-            'starterTokens' => $settings->max_free_tokens,
+            'starterTokens' => $starterTokens,
         ]);
 
         return $user;
@@ -88,6 +89,8 @@ class UserService
             'planExpiryDate' => optional($user->plan_expiry_at)?->toIso8601String(),
             'planExpiry' => optional($user->plan_expiry_at)?->toIso8601String(),
             'tokens' => (int) $user->tokens,
+            'adminCreditTokens' => (int) $user->admin_credit_tokens,
+            'paidTokensBalance' => max(0, (int) $user->tokens - (int) $user->admin_credit_tokens),
             'totalDesignsGenerated' => (int) $user->total_designs_generated,
             'referralCode' => $user->referral_code,
             'referredBy' => $user->referred_by,
@@ -117,6 +120,8 @@ class UserService
             'templatesUploaded' => Template::query()->where('creator_id', $user->id)->count(),
             'totalSpent' => (int) $user->transactions()->where('status', 'success')->sum('amount'),
             'tokens' => (int) $user->tokens,
+            'adminCreditTokens' => (int) $user->admin_credit_tokens,
+            'paidTokensBalance' => max(0, (int) $user->tokens - (int) $user->admin_credit_tokens),
             'suspended' => $user->status === 'suspended',
             'planExpiryDate' => optional($user->plan_expiry_at)?->toIso8601String(),
         ];

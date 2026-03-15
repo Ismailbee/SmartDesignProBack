@@ -24,7 +24,7 @@ class PlutoDSeeder extends Seeder
                 'enable_ai' => true,
                 'default_user_plan' => 'Basic',
                 'session_timeout' => 120,
-                'max_free_tokens' => (int) config('plutod.starter_tokens', 100),
+                'max_free_tokens' => (int) config('plutod.starter_tokens', 16),
                 'pricing' => [
                     'Premium' => [
                         'price' => 2500,

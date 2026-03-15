@@ -253,9 +253,11 @@ class PaymentService
         }
 
         $previousTokens = (int) $user->tokens;
+        $previousAdminCreditTokens = (int) $user->admin_credit_tokens;
 
         DB::transaction(function () use ($user, $tokens, $reason, $creditedBy) {
             $user->increment('tokens', $tokens);
+            $user->increment('admin_credit_tokens', $tokens);
 
             Transaction::query()->create([
                 'id' => 'ADMIN_CREDIT_'.Str::upper(Str::random(20)),
@@ -291,6 +293,8 @@ class PaymentService
             'success' => true,
             'previousTokens' => $previousTokens,
             'newTokens' => (int) $user->tokens,
+            'previousAdminCreditTokens' => $previousAdminCreditTokens,
+            'newAdminCreditTokens' => (int) $user->admin_credit_tokens,
             'credited' => $tokens,
         ];
     }

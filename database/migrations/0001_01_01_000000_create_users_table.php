@@ -21,7 +21,7 @@ return new class extends Migration
             $table->string('status')->default('active')->index();
             $table->string('plan')->default('Basic')->index();
             $table->timestamp('plan_expiry_at')->nullable();
-            $table->unsignedInteger('tokens')->default(100);
+            $table->unsignedInteger('tokens')->default(16);
             $table->unsignedInteger('total_designs_generated')->default(0);
             $table->string('referral_code')->nullable()->unique();
             $table->string('referred_by')->nullable()->index();

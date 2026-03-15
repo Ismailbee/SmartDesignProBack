@@ -21,7 +21,7 @@ class AppSettingService
                 'enable_ai' => true,
                 'default_user_plan' => 'Basic',
                 'session_timeout' => 120,
-                'max_free_tokens' => (int) config('plutod.starter_tokens', 100),
+                'max_free_tokens' => (int) config('plutod.starter_tokens', 16),
                 'pricing' => $this->defaultPricing(),
                 'features' => [
                     'imposition' => true,

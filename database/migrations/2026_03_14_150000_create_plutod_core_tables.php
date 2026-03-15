@@ -116,7 +116,7 @@ return new class extends Migration
             $table->boolean('enable_ai')->default(true);
             $table->string('default_user_plan')->default('Basic');
             $table->unsignedInteger('session_timeout')->default(120);
-            $table->unsignedInteger('max_free_tokens')->default(100);
+            $table->unsignedInteger('max_free_tokens')->default(16);
             $table->json('pricing')->nullable();
             $table->json('features')->nullable();
             $table->timestamps();

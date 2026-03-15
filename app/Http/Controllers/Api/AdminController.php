@@ -149,7 +149,12 @@ class AdminController extends Controller
                 'expiry' => optional($user->plan_expiry_at)?->toIso8601String(),
                 'isActive' => $user->plan === 'Premium' && (! $user->plan_expiry_at || $user->plan_expiry_at->isFuture()),
                 'tokensBalance' => (int) $user->tokens,
-                'totalTokensPurchased' => (int) $user->transactions()->sum('tokens'),
+                'paidTokensBalance' => max(0, (int) $user->tokens - (int) $user->admin_credit_tokens),
+                'adminCreditTokens' => (int) $user->admin_credit_tokens,
+                'totalTokensPurchased' => (int) $user->transactions()
+                    ->where('status', 'success')
+                    ->whereIn('type', ['token_purchase', 'plan_upgrade'])
+                    ->sum('tokens'),
             ],
         ]);
     }

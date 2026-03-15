@@ -8,7 +8,6 @@ use App\Services\ApiTokenService;
 use App\Services\OtpService;
 use App\Services\PasswordResetService;
 use App\Services\UserService;
-use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -44,7 +43,7 @@ class AuthController extends Controller
             'role' => 'user',
             'status' => 'active',
             'plan' => config('plutod.plans.0.name', 'Basic'),
-            'tokens' => (int) config('plutod.starter_tokens', 100),
+            'tokens' => (int) config('plutod.starter_tokens', 16),
             'referral_code' => $this->userService->generateReferralCode(),
             'last_active_at' => now(),
             'email_verified_at' => now(),
@@ -71,7 +70,7 @@ class AuthController extends Controller
         $user = User::query()->where('email', strtolower(trim($data['email'])))->first();
 
         if (! $user || ! Hash::check($data['password'], (string) $user->password)) {
-            throw new AuthenticationException('Invalid email or password.');
+            return response()->json(['message' => 'Invalid email or password.'], 401);
         }
 
         if ($user->status === 'suspended') {

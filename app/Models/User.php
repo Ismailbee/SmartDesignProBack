@@ -30,6 +30,7 @@ class User extends Authenticatable
         'plan',
         'plan_expiry_at',
         'tokens',
+        'admin_credit_tokens',
         'total_designs_generated',
         'referral_code',
         'referred_by',
