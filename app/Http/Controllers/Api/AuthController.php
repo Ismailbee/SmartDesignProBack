@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Password;
 use RuntimeException;
+use Throwable;
 
 class AuthController extends Controller
 {
@@ -44,7 +45,7 @@ class AuthController extends Controller
             'role' => 'user',
             'status' => 'active',
             'plan' => config('plutod.plans.0.name', 'Basic'),
-            'tokens' => (int) config('plutod.starter_tokens', 16),
+            'tokens' => (int) config('plutod.starter_tokens', 15),
             'referral_code' => $this->userService->generateReferralCode(),
             'last_active_at' => now(),
             'email_verified_at' => now(),
@@ -250,25 +251,28 @@ class AuthController extends Controller
     /**
      * Authenticate with Google ID token (from frontend Google Identity Services).
      *
-     * The frontend obtains a Google ID token via the GSI library and sends it here.
-     * We verify it against Google's tokeninfo endpoint, then find or create the user.
+     * The frontend sends either a Google ID token or an OAuth authorization code.
+     * We exchange and verify it with Google, then find or create the user.
      */
     public function googleLogin(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'idToken' => ['required', 'string'],
+            'idToken' => ['nullable', 'string', 'required_without:code'],
+            'code' => ['nullable', 'string', 'required_without:idToken'],
+            'redirectUri' => ['nullable', 'url'],
         ]);
 
-        // Verify the ID token with Google
-        $response = Http::get('https://oauth2.googleapis.com/tokeninfo', [
-            'id_token' => $data['idToken'],
-        ]);
+        try {
+            $googleUser = ! empty($data['code'])
+                ? $this->fetchGoogleUserFromAuthorizationCode($data['code'], $data['redirectUri'] ?? null)
+                : $this->fetchGoogleUserFromIdToken($data['idToken']);
+        } catch (RuntimeException $exception) {
+            return response()->json(['message' => $exception->getMessage()], 401);
+        } catch (Throwable $exception) {
+            report($exception);
 
-        if ($response->failed()) {
-            return response()->json(['message' => 'Invalid Google token.'], 401);
+            return response()->json(['message' => 'Google sign-in is temporarily unavailable. Please try again shortly.'], 502);
         }
-
-        $googleUser = $response->json();
 
         // Verify the token was issued for our app
         $expectedClientId = config('services.google.client_id');
@@ -313,7 +317,7 @@ class AuthController extends Controller
                 'role' => 'user',
                 'status' => 'active',
                 'plan' => config('plutod.plans.0.name', 'Basic'),
-                'tokens' => (int) config('plutod.starter_tokens', 16),
+                'tokens' => (int) config('plutod.starter_tokens', 15),
                 'referral_code' => $this->userService->generateReferralCode(),
                 'last_active_at' => now(),
                 'email_verified_at' => now(),
@@ -329,5 +333,43 @@ class AuthController extends Controller
             'user' => $this->userService->toApiArray($user),
             ...$this->apiTokenService->issueTokens($user, (string) $request->userAgent()),
         ]);
+    }
+
+    private function fetchGoogleUserFromIdToken(string $idToken): array
+    {
+        $response = Http::timeout(15)->get('https://oauth2.googleapis.com/tokeninfo', [
+            'id_token' => $idToken,
+        ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException('Invalid Google token.');
+        }
+
+        return $response->json();
+    }
+
+    private function fetchGoogleUserFromAuthorizationCode(string $code, ?string $redirectUri): array
+    {
+        $tokenResponse = Http::asForm()
+            ->timeout(15)
+            ->post('https://oauth2.googleapis.com/token', [
+                'code' => $code,
+                'client_id' => (string) config('services.google.client_id'),
+                'client_secret' => (string) config('services.google.client_secret'),
+                'redirect_uri' => $redirectUri ?: (string) config('services.google.redirect'),
+                'grant_type' => 'authorization_code',
+            ]);
+
+        if ($tokenResponse->failed()) {
+            throw new RuntimeException('Invalid Google authorization code.');
+        }
+
+        $idToken = (string) ($tokenResponse->json('id_token') ?? '');
+
+        if ($idToken === '') {
+            throw new RuntimeException('Google did not return an ID token.');
+        }
+
+        return $this->fetchGoogleUserFromIdToken($idToken);
     }
 }

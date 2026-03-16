@@ -62,5 +62,5 @@ return [
             ['name' => 'diamond', 'threshold' => 100],
         ],
     ],
-    'starter_tokens' => (int) env('PLUTOD_STARTER_TOKENS', 16),
+    'starter_tokens' => (int) env('PLUTOD_STARTER_TOKENS', 15),
 ];
