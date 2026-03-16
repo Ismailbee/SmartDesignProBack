@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Throwable;
 
 class OtpService
 {
@@ -40,9 +41,15 @@ class OtpService
             'ip_address' => $ipAddress,
         ]);
 
-        Mail::raw("Your PlutoD verification code is {$otp}. It expires in 5 minutes.", function ($message) use ($email) {
-            $message->to($email)->subject('Your PlutoD verification code');
-        });
+        try {
+            Mail::raw("Your PlutoD verification code is {$otp}. It expires in 5 minutes.", function ($message) use ($email) {
+                $message->to($email)->subject('Your PlutoD verification code');
+            });
+        } catch (Throwable $exception) {
+            report($exception);
+
+            throw new RuntimeException('Failed to send verification email. Please try again shortly.');
+        }
 
         $response = [
             'success' => true,

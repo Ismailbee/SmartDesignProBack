@@ -11,6 +11,7 @@ use App\Services\UserService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Password;
 use RuntimeException;
 
@@ -244,5 +245,89 @@ class AuthController extends Controller
         }
 
         return response()->json(['message' => 'Password reset successfully.']);
+    }
+
+    /**
+     * Authenticate with Google ID token (from frontend Google Identity Services).
+     *
+     * The frontend obtains a Google ID token via the GSI library and sends it here.
+     * We verify it against Google's tokeninfo endpoint, then find or create the user.
+     */
+    public function googleLogin(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'idToken' => ['required', 'string'],
+        ]);
+
+        // Verify the ID token with Google
+        $response = Http::get('https://oauth2.googleapis.com/tokeninfo', [
+            'id_token' => $data['idToken'],
+        ]);
+
+        if ($response->failed()) {
+            return response()->json(['message' => 'Invalid Google token.'], 401);
+        }
+
+        $googleUser = $response->json();
+
+        // Verify the token was issued for our app
+        $expectedClientId = config('services.google.client_id');
+        if (($googleUser['aud'] ?? '') !== $expectedClientId) {
+            return response()->json(['message' => 'Token was not issued for this application.'], 401);
+        }
+
+        $email = strtolower(trim($googleUser['email'] ?? ''));
+        $googleId = $googleUser['sub'] ?? null;
+
+        if (! $email || ! $googleId) {
+            return response()->json(['message' => 'Could not retrieve email from Google account.'], 422);
+        }
+
+        // Find existing user by google_id or email
+        $user = User::query()->where('google_id', $googleId)->first()
+            ?? User::query()->where('email', $email)->first();
+
+        if ($user) {
+            // Link Google ID if not already linked
+            if (! $user->google_id) {
+                $user->forceFill(['google_id' => $googleId])->save();
+            }
+
+            if ($user->status === 'suspended') {
+                return response()->json(['message' => 'This account has been suspended.'], 403);
+            }
+
+            // Update avatar from Google if user doesn't have one
+            $updates = ['last_active_at' => now()];
+            if (! $user->avatar && ! empty($googleUser['picture'])) {
+                $updates['avatar'] = $googleUser['picture'];
+            }
+            $user->forceFill($updates)->save();
+        } else {
+            // Create new user from Google profile
+            $user = User::query()->create([
+                'email' => $email,
+                'google_id' => $googleId,
+                'name' => $googleUser['name'] ?? strstr($email, '@', true),
+                'avatar' => $googleUser['picture'] ?? null,
+                'role' => 'user',
+                'status' => 'active',
+                'plan' => config('plutod.plans.0.name', 'Basic'),
+                'tokens' => (int) config('plutod.starter_tokens', 16),
+                'referral_code' => $this->userService->generateReferralCode(),
+                'last_active_at' => now(),
+                'email_verified_at' => now(),
+            ]);
+
+            $this->userService->logActivity($user, 'user_registered', 'User registered via Google', [
+                'source' => 'google-oauth',
+            ]);
+        }
+
+        return response()->json([
+            'message' => 'Google login successful.',
+            'user' => $this->userService->toApiArray($user),
+            ...$this->apiTokenService->issueTokens($user, (string) $request->userAgent()),
+        ]);
     }
 }
