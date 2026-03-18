@@ -42,11 +42,11 @@ class PlutoDSeeder extends Seeder
         );
 
         $adminOne = User::query()->updateOrCreate(
-            ['email' => 'ismailabdulrauf639@gmail.com'],
+            ['email' => 'admin@example.com'],
             [
                 'firebase_uid' => 'admin-ismail',
                 'name' => 'Ismail',
-                'password' => 'Password123!',
+                'password' => 'password',
                 'role' => 'admin',
                 'status' => 'active',
                 'plan' => 'Premium',
