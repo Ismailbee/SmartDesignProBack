@@ -9,10 +9,14 @@ use App\Services\OtpService;
 use App\Services\PasswordResetService;
 use App\Services\UserService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Str;
+use Laravel\Socialite\Facades\Socialite;
 use RuntimeException;
 use Throwable;
 
@@ -219,6 +223,70 @@ class AuthController extends Controller
         ]);
     }
 
+    public function googleRedirect(): RedirectResponse
+    {
+        return Socialite::driver('google')
+            ->scopes(['openid', 'email', 'profile'])
+            ->redirect();
+    }
+
+    public function googleCallback(Request $request): RedirectResponse
+    {
+        try {
+            $socialiteUser = Socialite::driver('google')->user();
+            $user = $this->upsertGoogleUser([
+                'sub' => $socialiteUser->getId(),
+                'email' => $socialiteUser->getEmail(),
+                'email_verified' => true,
+                'name' => $socialiteUser->getName(),
+                'picture' => $socialiteUser->getAvatar(),
+            ]);
+
+            $exchangeCode = $this->createGoogleExchangeCode($user, $request);
+
+            return redirect()->away($this->frontendLoginUrl([
+                'google_auth_code' => $exchangeCode,
+            ]));
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return redirect()->away($this->frontendLoginUrl([
+                'google_auth_error' => 'Google sign-in failed. Please try again.',
+            ]));
+        }
+    }
+
+    public function exchangeGoogleLogin(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'code' => ['required', 'string'],
+        ]);
+
+        $payload = Cache::pull($this->googleExchangeCacheKey($data['code']));
+
+        if (! is_array($payload) || empty($payload['user_id'])) {
+            return response()->json(['message' => 'Google login session is invalid or has expired.'], 401);
+        }
+
+        $user = User::query()->find($payload['user_id']);
+
+        if (! $user) {
+            return response()->json(['message' => 'User account could not be found.'], 404);
+        }
+
+        if ($user->status === 'suspended') {
+            return response()->json(['message' => 'This account has been suspended.'], 403);
+        }
+
+        $user->forceFill(['last_active_at' => now()])->save();
+
+        return response()->json([
+            'message' => 'Google login successful.',
+            'user' => $this->userService->toApiArray($user->refresh()),
+            ...$this->apiTokenService->issueTokens($user, (string) $request->userAgent()),
+        ]);
+    }
+
     public function sendLoginOtp(Request $request): JsonResponse
     {
         $data = $request->validate(['email' => ['required', 'email']]);
@@ -318,60 +386,12 @@ class AuthController extends Controller
             return response()->json(['message' => 'Token was not issued for this application.'], 401);
         }
 
-        $email = strtolower(trim($googleUser['email'] ?? ''));
-        $googleId = $googleUser['sub'] ?? null;
-        $emailVerified = filter_var($googleUser['email_verified'] ?? false, FILTER_VALIDATE_BOOL);
+        try {
+            $user = $this->upsertGoogleUser($googleUser);
+        } catch (RuntimeException $exception) {
+            $status = $exception->getMessage() === 'This account has been suspended.' ? 403 : 422;
 
-        if (! $email || ! $googleId) {
-            return response()->json(['message' => 'Could not retrieve email from Google account.'], 422);
-        }
-
-        if (! $emailVerified) {
-            return response()->json(['message' => 'Google account email is not verified.'], 422);
-        }
-
-        // Find existing user by google_id or email
-        $user = User::query()->where('google_id', $googleId)->first()
-            ?? User::query()->where('email', $email)->first();
-
-        if ($user) {
-            // Link Google ID if not already linked
-            if (! $user->google_id) {
-                $user->forceFill(['google_id' => $googleId])->save();
-            }
-
-            if ($user->status === 'suspended') {
-                return response()->json(['message' => 'This account has been suspended.'], 403);
-            }
-
-            // Update avatar from Google if user doesn't have one
-            $updates = ['last_active_at' => now()];
-            if (! $user->avatar && ! empty($googleUser['picture'])) {
-                $updates['avatar'] = $googleUser['picture'];
-            }
-            if (! $user->email_verified_at) {
-                $updates['email_verified_at'] = now();
-            }
-            $user->forceFill($updates)->save();
-        } else {
-            // Create new user from Google profile
-            $user = User::query()->create([
-                'email' => $email,
-                'google_id' => $googleId,
-                'name' => $googleUser['name'] ?? strstr($email, '@', true),
-                'avatar' => $googleUser['picture'] ?? null,
-                'role' => 'user',
-                'status' => 'active',
-                'plan' => config('plutod.plans.0.name', 'Basic'),
-                'tokens' => (int) config('plutod.starter_tokens', 15),
-                'referral_code' => $this->userService->generateReferralCode(),
-                'last_active_at' => now(),
-                'email_verified_at' => now(),
-            ]);
-
-            $this->userService->logActivity($user, 'user_registered', 'User registered via Google', [
-                'source' => 'google-oauth',
-            ]);
+            return response()->json(['message' => $exception->getMessage()], $status);
         }
 
         return response()->json([
@@ -417,5 +437,93 @@ class AuthController extends Controller
         }
 
         return $this->fetchGoogleUserFromIdToken($idToken);
+    }
+
+    private function upsertGoogleUser(array $googleUser): User
+    {
+        $email = strtolower(trim($googleUser['email'] ?? ''));
+        $googleId = $googleUser['sub'] ?? null;
+        $emailVerified = filter_var($googleUser['email_verified'] ?? false, FILTER_VALIDATE_BOOL);
+
+        if (! $email || ! $googleId) {
+            throw new RuntimeException('Could not retrieve email from Google account.');
+        }
+
+        if (! $emailVerified) {
+            throw new RuntimeException('Google account email is not verified.');
+        }
+
+        $user = User::query()->where('google_id', $googleId)->first()
+            ?? User::query()->where('email', $email)->first();
+
+        if ($user) {
+            if (! $user->google_id) {
+                $user->google_id = $googleId;
+            }
+
+            if ($user->status === 'suspended') {
+                throw new RuntimeException('This account has been suspended.');
+            }
+
+            $updates = ['last_active_at' => now()];
+            if (! $user->avatar && ! empty($googleUser['picture'])) {
+                $updates['avatar'] = $googleUser['picture'];
+            }
+            if (! $user->email_verified_at) {
+                $updates['email_verified_at'] = now();
+            }
+            $user->forceFill($updates)->save();
+
+            return $user->refresh();
+        }
+
+        $user = User::query()->create([
+            'email' => $email,
+            'google_id' => $googleId,
+            'name' => $googleUser['name'] ?? strstr($email, '@', true),
+            'avatar' => $googleUser['picture'] ?? null,
+            'role' => 'user',
+            'status' => 'active',
+            'plan' => config('plutod.plans.0.name', 'Basic'),
+            'tokens' => (int) config('plutod.starter_tokens', 15),
+            'referral_code' => $this->userService->generateReferralCode(),
+            'last_active_at' => now(),
+            'email_verified_at' => now(),
+        ]);
+
+        $this->userService->logActivity($user, 'user_registered', 'User registered via Google', [
+            'source' => 'google-oauth',
+        ]);
+
+        return $user;
+    }
+
+    private function createGoogleExchangeCode(User $user, Request $request): string
+    {
+        $exchangeCode = Str::random(96);
+
+        Cache::put($this->googleExchangeCacheKey($exchangeCode), [
+            'user_id' => $user->getKey(),
+            'ip' => $request->ip(),
+        ], now()->addMinutes(5));
+
+        return $exchangeCode;
+    }
+
+    private function googleExchangeCacheKey(string $exchangeCode): string
+    {
+        return 'google-auth-exchange:'.hash('sha256', $exchangeCode);
+    }
+
+    private function frontendLoginUrl(array $query = []): string
+    {
+        $frontendUrl = rtrim((string) config('plutod.frontend_url'), '/');
+        $url = $frontendUrl.'/login';
+
+        if ($query !== []) {
+            $url .= '?'.http_build_query($query);
+        }
+
+        return $url;
     }
 }

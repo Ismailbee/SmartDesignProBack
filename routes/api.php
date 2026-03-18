@@ -29,6 +29,7 @@ Route::prefix('/api')->group(function () {
         Route::post('/register', [AuthController::class, 'register']);
         Route::post('/login', [AuthController::class, 'login']);
         Route::post('/google', [AuthController::class, 'googleLogin']);
+        Route::post('/google/exchange', [AuthController::class, 'exchangeGoogleLogin']);
         Route::post('/refresh', [AuthController::class, 'refresh']);
         Route::post('/password-reset/request', [AuthController::class, 'sendPasswordReset']);
         Route::post('/password-reset/confirm', [AuthController::class, 'confirmPasswordReset']);

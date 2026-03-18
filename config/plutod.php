@@ -1,7 +1,7 @@
 <?php
 
 return [
-    'frontend_url' => env('PLUTOD_FRONTEND_URL', 'http://localhost:8100'),
+    'frontend_url' => env('PLUTOD_FRONTEND_URL', 'http://localhost:5173'),
     'callback_url' => env('PLUTOD_CALLBACK_URL', env('APP_URL', 'http://localhost:8000')),
     'firebase_project_id' => env('FIREBASE_PROJECT_ID', 'designpro-5169c'),
     'firebase_api_key' => env('FIREBASE_API_KEY'),
