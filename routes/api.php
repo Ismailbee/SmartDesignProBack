@@ -36,6 +36,7 @@ Route::prefix('/api')->group(function () {
             Route::get('/me', [AuthController::class, 'me']);
             Route::post('/logout', [AuthController::class, 'logout']);
             Route::post('/password-change', [AuthController::class, 'changePassword']);
+            Route::post('/link-password', [AuthController::class, 'linkPassword']);
             Route::put('/profile', [AuthController::class, 'updateProfile']);
         });
     });

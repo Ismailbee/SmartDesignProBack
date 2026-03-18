@@ -163,6 +163,33 @@ class AuthController extends Controller
         return response()->json(['message' => 'Password changed successfully.']);
     }
 
+    public function linkPassword(Request $request): JsonResponse
+    {
+        $user = $request->attributes->get('auth_user');
+
+        if (! $user instanceof User) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        if (filled($user->password)) {
+            return response()->json(['message' => 'Password authentication is already enabled for this account.'], 422);
+        }
+
+        $data = $request->validate([
+            'password' => ['required', 'string', 'min:8'],
+        ]);
+
+        $user->forceFill([
+            'password' => $data['password'],
+            'last_active_at' => now(),
+        ])->save();
+
+        return response()->json([
+            'message' => 'Password authentication linked successfully.',
+            'user' => $this->userService->toApiArray($user->refresh()),
+        ]);
+    }
+
     public function updateProfile(Request $request): JsonResponse
     {
         $user = $request->attributes->get('auth_user');
@@ -276,15 +303,31 @@ class AuthController extends Controller
 
         // Verify the token was issued for our app
         $expectedClientId = config('services.google.client_id');
-        if (($googleUser['aud'] ?? '') !== $expectedClientId) {
+        if (! is_string($expectedClientId) || trim($expectedClientId) === '') {
+            return response()->json(['message' => 'Google sign-in is not configured on the server.'], 503);
+        }
+
+        $allowedAudiences = array_values(array_filter(array_map('trim', explode(',', $expectedClientId))));
+        $tokenAudience = (string) ($googleUser['aud'] ?? '');
+        $authorizedParty = (string) ($googleUser['azp'] ?? '');
+
+        if (
+            ! in_array($tokenAudience, $allowedAudiences, true)
+            && ! in_array($authorizedParty, $allowedAudiences, true)
+        ) {
             return response()->json(['message' => 'Token was not issued for this application.'], 401);
         }
 
         $email = strtolower(trim($googleUser['email'] ?? ''));
         $googleId = $googleUser['sub'] ?? null;
+        $emailVerified = filter_var($googleUser['email_verified'] ?? false, FILTER_VALIDATE_BOOL);
 
         if (! $email || ! $googleId) {
             return response()->json(['message' => 'Could not retrieve email from Google account.'], 422);
+        }
+
+        if (! $emailVerified) {
+            return response()->json(['message' => 'Google account email is not verified.'], 422);
         }
 
         // Find existing user by google_id or email
@@ -305,6 +348,9 @@ class AuthController extends Controller
             $updates = ['last_active_at' => now()];
             if (! $user->avatar && ! empty($googleUser['picture'])) {
                 $updates['avatar'] = $googleUser['picture'];
+            }
+            if (! $user->email_verified_at) {
+                $updates['email_verified_at'] = now();
             }
             $user->forceFill($updates)->save();
         } else {
